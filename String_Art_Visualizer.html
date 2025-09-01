@@ -1,0 +1,346 @@
+<html>
+<head>
+<title>String Art Visualizer</title>
+<!-- <script type="text/javascript" src="jquery-3.7.1.min.js"></script>-->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+<script>
+$('document').ready(function () {
+	/** Canvas settings */
+	nails = [];
+	nail_radius = 6;
+	nail_fill = "#C0C0C0";
+	nail_stroke = "#000000";
+	nail_width = 1;
+	outline_stroke = "#0000FF";
+	outline_width = 3;
+	string_stroke = "#FF00FF";
+	string_width = 3;
+	nail_clicked = -1;
+	old_xy = [null, null];
+	view_outline = true;
+	view_strings = false;
+	view_image = true;
+	canvas = $("#my_canvas")[0];
+	ctx = canvas.getContext("2d");
+	canvas.width = canvas.offsetWidth;
+	canvas.height = canvas.offsetHeight;
+	img = new Image();
+	dragging = false;
+	clickPoint = { x: 0, y: 0 };
+	clientPoint = { x: 0, y: 0 };
+	
+	/** Copy uploaded image to img src */
+	$("#load_image").change(function () {
+		if (this.files && this.files[0]) {
+			var reader = new FileReader();
+			reader.onload = function (e) {
+				img = new Image();
+				img.onload = draw;
+				img.src = reader.result;
+			}
+			reader.readAsDataURL(this.files[0]);
+		}
+	});
+	
+	function get_angle(a, b, c, orient) {
+		x1 = nails[a].x-nails[b].x;
+		x2 = nails[c].x-nails[b].x;
+		y1 = nails[a].y-nails[b].y;
+		y2 = nails[c].y-nails[b].y;
+		angle = Math.atan2(x1*y2-y1*x2,x1*x2+y1*y2);
+		if (Math.sign(angle) != orient) {
+			angle = orient*2*Math.PI+angle;
+		}
+		return Math.abs(angle);
+	}
+	
+	function intersects(A,B,C,D) {
+		var det, gamma, lambda;
+		det = (B.x - A.x) * (D.y - C.y) - (D.x - C.x) * (B.y - A.y);
+		if (det === 0) {
+			return false;
+		} else {
+			lambda = ((D.y - C.y) * (D.x - A.x) + (C.x - D.x) * (D.y - A.y)) / det;
+			gamma = ((A.y - B.y) * (D.x - A.x) + (B.x - A.x) * (D.y - A.y)) / det;
+			return (0 < lambda && lambda < 1) && (0 < gamma && gamma < 1);
+		}
+	}
+	
+	/** Clear and Draw canvas */
+	function draw() {
+		ctx.save();
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		ctx.restore();
+		// draw image
+		if (view_image) {
+			ctx.drawImage(img,0,0);
+		}
+		// draw outline strings
+		if (view_outline) {
+			for (var i = 0; i < nails.length; i++) {
+				ctx.beginPath();
+				ctx.moveTo(nails[i].x, nails[i].y);
+				j = (i+1 == nails.length) ? 0 : (i + 1);
+				ctx.lineTo(nails[j].x, nails[j].y);
+				ctx.strokeStyle = outline_stroke;
+				ctx.lineWidth = outline_width;
+				ctx.stroke();
+			}
+		}
+		// draw internal strings
+		if (view_strings) {
+			// determine if nails are CW or ccw
+			console.log('start');
+			var ttl = 0;
+			for (var i = 0; i < nails.length; i++) {
+				j = (i+1 == nails.length) ? 0 : (i + 1);
+				ttl += (nails[j].x-nails[i].x)*(nails[j].y+nails[i].y);
+			}
+			orient = Math.sign(ttl);
+			// loop all polygon edges i,j
+			for (var i = 0; i < nails.length; i++) {
+				for (var j = i; j < nails.length; j++) {
+					// skip last pair (always an edge)
+					if ((Math.abs(i-j) <= 1) || (i==0 && j==nails.length-1) || (j==0 && i==nails.length-1)) {
+						continue;
+					}
+					// Check side-segment angle is within side-side angle on both ends
+					h = (i==0) ? nails.length-1 : i-1;
+					side_angle = get_angle(h, i, (i==nails.length-1)?0:i+1, orient);
+					segment_angle = get_angle(h, i, j, orient);
+					console.log(h, i, (i==nails.length-1)?0:i+1,side_angle, h, i, j,segment_angle);
+					if (segment_angle > 0 && segment_angle > side_angle) {
+						continue
+					}
+					h = (j==0) ? nails.length-1 : j-1;
+					side_angle = get_angle(h, j, (j==nails.length-1)?0:j+1, orient);
+					segment_angle = get_angle(h, j, i, orient);
+					console.log(h, j, (j==nails.length-1)?0:j+1,side_angle, h, j, i,segment_angle)
+					if (segment_angle > 0 && segment_angle > side_angle) {
+						continue
+					}
+					// compare against all other point pairs k,l
+					var crosses = false;
+					for (var k = 0; k < nails.length; k++) {
+						l = (k+1 == nails.length) ? 0 : (k + 1);
+						// if lines intersect then do not draw
+						if (intersects(nails[i],nails[j],nails[k],nails[l])) {
+							var crosses = true;
+							break;
+						}
+					}
+					if (crosses == true) {
+						continue;
+					}
+					ctx.beginPath();
+					ctx.moveTo(nails[i].x, nails[i].y);
+					ctx.lineTo(nails[j].x, nails[j].y);
+					ctx.strokeStyle = string_stroke;
+					ctx.lineWidth = string_width;
+					ctx.stroke();
+				}
+			}
+		}
+		// draw nail heads
+		for (var i = 0; i < nails.length; i++) {
+			ctx.beginPath();
+			ctx.arc(nails[i].x, nails[i].y, nail_radius, 0, 2 * Math.PI, true);
+			ctx.fillStyle = nail_fill;
+			ctx.fill();
+			ctx.strokeStyle = nail_stroke;
+			ctx.lineWidth = nail_width;
+			ctx.stroke();
+		}
+	}
+	
+	function getCursorPosition(e) {
+		const rect = canvas.getBoundingClientRect()
+		const x = e.clientX - rect.left
+		const y = e.clientY - rect.top
+		const originalPoint = new DOMPoint(x, y);
+		return ctx.getTransform().invertSelf().transformPoint(originalPoint);
+	}
+	
+	/** Mousedown, check if nail clicked. */
+	canvas.addEventListener('mousedown', function(e) {
+		if (e.which != 1) {return} // exit if not left mouse button
+		dragging = true;
+		clickPoint = getCursorPosition(e);
+		clientPoint = new DOMPoint(e.clientX, e.clientY);
+		// check if existing nail clicked
+		for (var i = 0; i < nails.length; i++) {
+			if ((clickPoint.x-nails[i].x)**2+(clickPoint.y-nails[i].y)**2 < nail_radius**2) {
+				nail_clicked = i;
+				return
+			}
+		}
+	});
+	
+	/** Mousemove, move nail if dragged. */
+	canvas.addEventListener('mousemove', function(e) {
+		if (dragging == false) {return}
+		mousePos = getCursorPosition(e);
+		if (nail_clicked == -1) {
+			// drag canvas
+			ctx.translate(mousePos.x-clickPoint.x, mousePos.y - clickPoint.y);
+		} else {
+			// drag nail
+			nails[nail_clicked] = getCursorPosition(e);
+		}
+		draw();
+	});
+	
+	/** Mouseup. */
+	canvas.addEventListener('mouseup', function(e) {
+		dragging = false;
+		if (e.which != 1) {return} // exit if not left mouse button
+		mousePos = getCursorPosition(e);
+		if (nail_clicked == -1) {
+			// add a new nail if mouse released in same client point
+			if (clientPoint.x == e.clientX && clientPoint.y == e.clientY) {
+				// if nail is on existing line then insert between points
+				for (var i = 0; i < nails.length; i++) {
+					j = (i+1 == nails.length) ? 0 : (i + 1);
+					var [x1, y1, x2, y2] = [nails[i].x, nails[i].y, nails[j].x, nails[j].y]
+					// click must be within nail-head radius of the line
+					// click must be one the line between the points
+					distance_to_line = Math.abs((x2-x1)*(y1-mousePos.y)-(x1-mousePos.x)*(y2-y1))/Math.sqrt((x2-x1)**2+(y2-y1)**2);
+					segment_length = Math.sqrt((x2-x1)**2+(y2-y1)**2);
+					dist_to_1 = Math.sqrt((mousePos.x-x1)**2+(mousePos.y-y1)**2);
+					dist_to_2 = Math.sqrt((mousePos.x-x2)**2+(mousePos.y-y2)**2);
+					if ((distance_to_line < nail_radius) && (dist_to_1 < segment_length) && (dist_to_2 < segment_length)) {
+						nails.splice(j, 0, clickPoint);
+						draw();
+						return
+					}
+				}
+				nails.push(mousePos);
+			}
+		} else {
+			// delete clicked nail if mouse released in same canvas position
+			if (clickPoint.x == mousePos.x && clickPoint.y == mousePos.y) {
+				nails.splice(nail_clicked,1);
+			}
+		}
+		nail_clicked = -1;
+		draw();
+	});
+	
+	/** Mouse scroll zoom canvas */
+	canvas.addEventListener('wheel', function(e) {
+		const zoom = e.deltaY < 0 ? 1.1 : 0.9;
+		mousePos = getCursorPosition(e);
+		ctx.translate(mousePos.x, mousePos.y);
+		ctx.scale(zoom, zoom);
+		ctx.translate(-mousePos.x, -mousePos.y);
+		draw();
+		e.preventDefault();
+	}, {passive: false});
+
+	
+	$("#clear_nails").click(function(){
+		nails = [];
+		draw();
+	});
+	
+	$("#nail_color").change(function(){
+		nail_fill = $(this).val();
+		draw();
+	});
+	
+	$("#nail_size").change(function(){
+		nail_radius = parseInt($(this).val());
+		draw();
+	});
+	
+	$("#outline_color").change(function(){
+		outline_stroke = $(this).val();
+		draw();
+	});
+	
+	$("#outline_width").change(function(){
+		outline_width = parseInt($(this).val());
+		draw();
+	});
+	
+	$("#string_color").change(function(){
+		string_stroke = $(this).val();
+		draw();
+	});
+	
+	$("#string_width").change(function(){
+		string_width = parseInt($(this).val());
+		draw();
+	});
+	
+	$("#toggle_outline").click(function(){
+		view_outline = !view_outline;
+		draw();
+	});
+	
+	$("#toggle_strings").click(function(){
+		view_strings = !view_strings;
+		draw();
+	});
+	
+	$("#toggle_image").click(function(){
+		view_image = !view_image;
+		draw();
+	});
+	
+	/** Maintain canvas aspect on resize */
+	$(window).resize(function(){
+		canvas.width = canvas.offsetWidth*scale;
+		canvas.height = canvas.offsetHeight*scale;
+		draw();
+	});
+	
+});
+</script>
+</head>
+<body>
+<div style="width: 25%; float: left;">
+	<h1>String Art Visualizer</h1>
+	<h2>Step 1: Load an image.</h2>
+	<input id="load_image" type="file"/>
+	<h2>Step 2: Click to place nails.</h2>
+	<ul>
+		<li>Click an empty space to add a nail.</li>
+		<li>Click on a nail to remove it.</li>
+		<li>Click and drag a nail to move it.</li>
+		<li>Click on a line between nails to insert a nail inbetween.</li>
+		<li>Add nails in a clockwise or counter-clockwise direction.</li>
+		<li>Click and drag to move the canvas.</li>
+		<li>Scroll to zoom in and out.</li>
+	</ul>
+	<button id="clear_nails" type="button">Clear Nails</button><br>
+	<h2>Step 3: View all strings between points.</h2>
+	<div>
+		<label for="nail_color">Nail Color:</label>
+		<input type="color" id="nail_color" name="nail_color" value="#C0C0C0" />
+		<label for="nail_size">Nail Size:</label>
+		<input type="number" id="nail_size" min="1" max="50" value="6" />
+	</div>
+	<div>
+		<label for="outline_color">Outline Color:</label>
+		<input type="color" id="outline_color" name="outline_color" value="#0000FF" />
+		<label for="outline_width">Outline Width:</label>
+		<input type="number" id="outline_width" min="1" max="50" value="3" />
+	</div>
+	<div>
+		<label for="string_color">String Color:</label>
+		<input type="color" id="string_color" name="string_color" value="#FF00FF" />
+		<label for="string_width">String Width:</label>
+		<input type="number" id="string_width"  min="1" max="50" value="3" />
+	</div>
+	<button id="toggle_outline" type="button">Toggle Outline</button>
+	<button id="toggle_strings" type="button">Toggle Strings</button>
+	<button id="toggle_image" type="button">Toggle Image</button><br>
+</div>
+<div style="width: 75%; float: left;">
+	<canvas id="my_canvas" style="border: 1px solid black; height: 100%; width: 100%;" />
+</div>
+
+</body>
+</html>
